@@ -6,7 +6,8 @@
   "schema-version": "1.0",
   "image": "xnat-tcia-download:latest",
   "type": "docker",
-  "command-line": "/workspace/run.sh XNAT 192.168.1.64 8104 /input/  /input/#SEGMENT_FILE# ",
+  "command-line": "/workspace/run.sh $XNAT_HOST $XNAT_USER $XNAT_PASS /input/  #PROJECT# /input/#SEGMENT_FILE# ",
+ 
   "override-entrypoint": true,
   "mounts": [
     {
@@ -18,6 +19,16 @@
   "environment-variables": {},
   "ports": {},
   "inputs": [
+    {
+      "name": "targetproject",
+      "label": "targetproject",
+      "description": "targetproject",
+      "type": "text",
+    
+      "required": true,
+      "replacement-key": "#PROJECT#",
+      "command-line-flag": ""
+    },
     {
       "name": "segment-file-name",
       "type": "string",
