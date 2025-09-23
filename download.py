@@ -3,11 +3,25 @@ from query import TCIAClient, get_response
 import pandas as pd
 import traceback
 import zipfile
+import xnat
 
+
+
+def upload(xnatsession,project,zip_path):
+    xnatsession.services.import_(zip_path, project=project, destination='/prearchive', content_type="application/zip")
+
+
+    
 if __name__ == '__main__':
     
     csv_file_path = sys.argv[1]
     root_folder = sys.argv[2]
+    project= sys.argv[3]
+    host = sys.argv[4]
+    username = sys.argv[5]
+    password= sys.argv[6]
+
+    xnatsession=xnat.connect(host,user=username,password=password)
 
     if csv_file_path.endswith('.csv'):
         df = pd.read_csv(csv_file_path)
@@ -46,4 +60,14 @@ if __name__ == '__main__':
         print("downloading series_instance_uid:",series_instance_uid," directory:",folder," zipfile:",basename)
         tcia_client = TCIAClient(apiKey=None, baseUrl="https://services.cancerimagingarchive.net/services/v3",resource="TCIA")
         tcia_client.get_image(seriesInstanceUid=series_instance_uid,downloadPath=folder,zipFileName=basename)
+        zip_file_path = folder+'/'+basename
+        upload(xnatsession,project,zip_file_path)
+        
+        # Remove zip file after successful upload to save disk space
+        try:
+            os.remove(zip_file_path)
+            print(f"Removed zip file: {zip_file_path}")
+        except OSError as e:
+            print(f"Warning: Could not remove zip file {zip_file_path}: {e}")
+
 

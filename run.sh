@@ -10,9 +10,9 @@ project=$5
 manifest=$6
 
 
-python /workspace/download.py ${manifest} ${output}/zipped
+python /workspace/download.py ${manifest} ${output}/zipped ${project} ${host} ${username} ${password} 
 
-python  /workspace/upload.py ${host} ${username} ${password} ${project} ${output}/zipped
+#python  /workspace/upload.py ${host} ${username} ${password} ${project} ${output}/zipped
 
 #python /workspace/unzip_all.py ${output}/zipped ${output}/unzipped/ ${output}/zipped/*.yaml
 #dcmsend -aec ${aetitle} -v ${host} ${port} --scan-directories --recurse ${output}/unzipped +sp *.dcm
