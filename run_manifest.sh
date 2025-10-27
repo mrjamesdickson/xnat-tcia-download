@@ -8,6 +8,8 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+DOCKER_IMAGE=${DOCKER_IMAGE:-xnatworks/xnat-tcia-download:1.2.0}
+
 list_manifests() {
   local script_dir
   script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -31,14 +33,26 @@ list_manifests() {
     fi
   done
   if [[ ${#manifests[@]} -gt 0 ]]; then
-    echo "Available manifest files:"
+    echo "Local manifest files:"
     printf '  %s\n' "${manifests[@]}"
   else
-    echo "No local .tcia manifests found. Provide a full path when prompted."
+    echo "No local .tcia manifests found in ./resources/TCIA."
+  fi
+}
+
+list_image_manifests() {
+  echo "Checking manifests baked into ${DOCKER_IMAGE}..."
+  if ! docker image inspect "${DOCKER_IMAGE}" >/dev/null 2>&1; then
+    echo "  (Pulling ${DOCKER_IMAGE} metadata...)" >&2
+  fi
+  if ! docker run --rm "${DOCKER_IMAGE}" find /workspace/resources/TCIA -maxdepth 1 -type f -name '*.tcia' -print 2>/dev/null; then
+    echo "  No manifests found inside the image or unable to list." >&2
   fi
 }
 
 list_manifests
+echo
+list_image_manifests
 
 echo
 read -rp "XNAT host (e.g. https://your-xnat): " XNAT_HOST
@@ -85,8 +99,6 @@ mkdir -p "${OUTPUT_DIR}"
 MANIFEST_DIR=$(cd "$(dirname "${MANIFEST_PATH}")" && pwd)
 MANIFEST_FILE=$(basename "${MANIFEST_PATH}")
 OUTPUT_DIR=$(cd "${OUTPUT_DIR}" && pwd)
-
-DOCKER_IMAGE=${DOCKER_IMAGE:-xnatworks/xnat-tcia-download:1.2.0}
 
 echo "Launching ${DOCKER_IMAGE}..."
 docker run --rm \
