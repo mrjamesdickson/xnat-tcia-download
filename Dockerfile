@@ -1,15 +1,15 @@
 FROM tensorflow/tensorflow
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python3-pip && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        dcmtk && \
     apt-get clean && \
-    apt-get install dcmtk -y && \
-    aptg-get install pytho && \
-    apt-get install pip & \
     rm -rf /var/lib/apt/lists/*
-RUN python -m pip install --upgrade pip
-COPY * /workspace/
-RUN pip install  -r /workspace/requirements.txt 
+RUN python3 -m pip install --upgrade pip
+COPY . /workspace/
+RUN pip install --no-cache-dir -r /workspace/requirements.txt 
 
 WORKDIR /workspace/
 LABEL org.nrg.commands="[{\"name\": \"tcia-download\", \"label\": \"tcia-download\", \"description\": \"\", \"version\": \"1.0\", \"schema-version\": \"1.0\", \"image\": \"xnatworks/xnat-tcia-download:1.2.0\", \"type\": \"docker\", \"command-line\": \"/workspace/run.sh \$XNAT_HOST \$XNAT_USER \$XNAT_PASS /input/  #PROJECT# /input/#SEGMENT_FILE# \", \"override-entrypoint\": true, \"mounts\": [{\"name\": \"in\", \"writable\": true, \"path\": \"/input\"}], \"environment-variables\": {}, \"ports\": {}, \"inputs\": [{\"name\": \"targetproject\", \"label\": \"targetproject\", \"description\": \"targetproject\", \"type\": \"text\", \"required\": true, \"replacement-key\": \"#PROJECT#\", \"command-line-flag\": \"\"}, {\"name\": \"segment-file-name\", \"type\": \"string\", \"required\": true, \"replacement-key\": \"#SEGMENT_FILE#\", \"select-values\": []}], \"outputs\": [], \"xnat\": [{\"name\": \"tcia-download\", \"label\": \"tcia-download\", \"description\": \"Run tcia-download.\", \"contexts\": [\"xnat:projectData\"], \"external-inputs\": [{\"name\": \"project\", \"description\": \"Input project\", \"type\": \"Project\", \"required\": true, \"provides-files-for-command-mount\": \"in\", \"load-children\": true}], \"derived-inputs\": [{\"name\": \"segments-resource\", \"description\": \"A segments resource on the selected scan.\", \"type\": \"Resource\", \"matcher\": \"@.label == 'TCIA'\", \"required\": true, \"provides-files-for-command-mount\": \"in\", \"load-children\": true, \"derived-from-wrapper-input\": \"project\", \"multiple\": false}, {\"name\": \"segment-file\", \"type\": \"File\", \"matcher\": \"@.name =~ /.*?.tcia/\", \"required\": true, \"load-children\": false, \"derived-from-wrapper-input\": \"segments-resource\", \"multiple\": false}, {\"name\": \"segment-file-name\", \"type\": \"string\", \"required\": true, \"provides-value-for-command-input\": \"segment-file-name\", \"user-settable\": false, \"load-children\": true, \"derived-from-wrapper-input\": \"segment-file\", \"derived-from-xnat-object-property\": \"name\", \"multiple\": false}], \"output-handlers\": []}], \"container-labels\": {}, \"generic-resources\": {}, \"ulimits\": {}, \"secrets\": []}]"
