@@ -8,6 +8,39 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+list_manifests() {
+  local script_dir
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  local roots=(
+    "${script_dir}/resources/TCIA"
+    "${PWD}/resources/TCIA"
+  )
+  local -a manifests=()
+  declare -A seen
+  local root
+  for root in "${roots[@]}"; do
+    if [[ -d "${root}" ]]; then
+      while IFS= read -r path; do
+        [[ -z "${path}" ]] && continue
+        path=$(cd "$(dirname "${path}")" && pwd)/"$(basename "${path}")"
+        if [[ -z "${seen[${path}]:-}" ]]; then
+          manifests+=("${path}")
+          seen[${path}]=1
+        fi
+      done < <(find "${root}" -maxdepth 1 -type f -name '*.tcia' 2>/dev/null | sort)
+    fi
+  done
+  if [[ ${#manifests[@]} -gt 0 ]]; then
+    echo "Available manifest files:"
+    printf '  %s\n' "${manifests[@]}"
+  else
+    echo "No local .tcia manifests found. Provide a full path when prompted."
+  fi
+}
+
+list_manifests
+
+echo
 read -rp "XNAT host (e.g. https://your-xnat): " XNAT_HOST
 if [[ -z "${XNAT_HOST}" ]]; then
   echo "Host cannot be empty." >&2
