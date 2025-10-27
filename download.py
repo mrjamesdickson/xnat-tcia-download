@@ -131,6 +131,35 @@ def adjust_patient_identifier(zip_path, patient_studies, patient_suffix_counters
     rewrite_patient_ids(zip_path, new_patient_id)
     return new_patient_id
 
+
+def ensure_project_exists(host, project, username, password):
+    """Ensure the XNAT project exists; create it if missing."""
+    base = host.rstrip('/')
+    check_url = f"{base}/data/projects/{project}?format=json"
+    response = requests.get(check_url, auth=(username, password))
+    if response.status_code == 200:
+        return
+    if response.status_code != 404:
+        raise RuntimeError(
+            f"Failed to query project {project}: HTTP {response.status_code}"
+        )
+
+    create_url = f"{base}/data/projects/{project}"
+    payload = (
+        '<xnat:ProjectData xmlns:xnat="http://nrg.wustl.edu/xnat" '
+        f'ID="{project}" name="{project}"></xnat:ProjectData>'
+    )
+    create_resp = requests.put(
+        create_url,
+        data=payload,
+        headers={'Content-Type': 'application/xml'},
+        auth=(username, password)
+    )
+    if create_resp.status_code not in (200, 201, 202):
+        raise RuntimeError(
+            f"Unable to create project {project}: HTTP {create_resp.status_code}"
+        )
+
 def download_series(series_instance_uid, download_path, zip_filename, chunk_size=1024 * 1024):
     """Stream a series ZIP from TCIA REST v1 endpoint."""
     os.makedirs(download_path, exist_ok=True)
@@ -255,6 +284,8 @@ if __name__ == '__main__':
         print(f"Loaded {len(df)} series from TCIA manifest: {csv_file_path}", flush=True)
     else:
         raise NotImplementedError()
+
+    ensure_project_exists(host, project, username, password)
 
     patient_studies = {}
     patient_suffix_counters = {}
