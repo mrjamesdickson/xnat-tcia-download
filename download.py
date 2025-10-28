@@ -71,8 +71,22 @@ def upload_project_file(host, project, username, password, resource, file_path):
         raise RuntimeError(f"Resource upload failed for {resource} ({response.status_code})")
 
 
-def rewrite_patient_ids(zip_path, new_patient_id):
-    """Rewrite all DICOM files inside the ZIP with the provided patient identifier."""
+def extract_patient_info(zip_path):
+    """Return (patient_id, patient_name, study_uid) from the first DICOM in the ZIP."""
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        dicom_members = [name for name in zf.namelist() if name.lower().endswith('.dcm')]
+        if not dicom_members:
+            raise ValueError(f"No DICOM files found in {zip_path}")
+        with zf.open(dicom_members[0]) as fp:
+            ds = pydicom.dcmread(fp, stop_before_pixels=True, force=True)
+            patient_id = ds.get('PatientID') or ""
+            patient_name = ds.get('PatientName') or ""
+            study_uid = ds.get('StudyInstanceUID')
+    return patient_id, patient_name, study_uid
+
+
+def rewrite_patient_id(zip_path, new_patient_id):
+    """Rewrite PatientID (session label) without altering PatientName."""
     with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
         tmp_path = tmp.name
     try:
@@ -82,8 +96,6 @@ def rewrite_patient_ids(zip_path, new_patient_id):
                 if entry.filename.lower().endswith('.dcm'):
                     ds = pydicom.dcmread(io.BytesIO(data), force=True)
                     ds.PatientID = new_patient_id
-                    if 'PatientName' in ds:
-                        ds.PatientName = new_patient_id
                     buffer = io.BytesIO()
                     ds.save_as(buffer, write_like_original=True)
                     data = buffer.getvalue()
@@ -94,42 +106,21 @@ def rewrite_patient_ids(zip_path, new_patient_id):
             os.remove(tmp_path)
 
 
-def adjust_patient_identifier(zip_path, patient_studies, patient_suffix_counters, patient_study_override):
-    """Adjust patient identifier when multiple studies exist for the same patient."""
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        dicom_members = [name for name in zf.namelist() if name.lower().endswith('.dcm')]
-        if not dicom_members:
-            raise ValueError(f"No DICOM files found in {zip_path}")
-        with zf.open(dicom_members[0]) as fp:
-            ds = pydicom.dcmread(fp, stop_before_pixels=True, force=True)
-            patient_id = ds.get('PatientID')
-            study_uid = ds.get('StudyInstanceUID')
+def assign_session_label(patient_id, study_uid, patient_labels, patient_counters):
+    """Compute consistent session label for patient/study, incrementing as needed."""
+    base_id = patient_id or "UNKNOWN"
+    key = (base_id, study_uid)
+    if key in patient_labels:
+        return patient_labels[key]
 
-    if not patient_id or not study_uid:
-        raise ValueError(f"Missing PatientID or StudyInstanceUID in {zip_path}")
-
-    key = (patient_id, study_uid)
-
-    if patient_id not in patient_studies:
-        patient_studies[patient_id] = {study_uid}
-        patient_suffix_counters[patient_id] = 0
-        return patient_id
-
-    if key in patient_study_override:
-        new_patient_id = patient_study_override[key]
-        rewrite_patient_ids(zip_path, new_patient_id)
-        return new_patient_id
-
-    if study_uid in patient_studies[patient_id]:
-        return patient_id
-
-    patient_suffix_counters[patient_id] += 1
-    new_patient_id = f"{patient_id}_{patient_suffix_counters[patient_id]:02d}"
-    patient_studies[patient_id].add(study_uid)
-    patient_study_override[key] = new_patient_id
-
-    rewrite_patient_ids(zip_path, new_patient_id)
-    return new_patient_id
+    count = patient_counters.get(base_id, 0)
+    if count == 0:
+        label = base_id
+    else:
+        label = f"{base_id}_{count:02d}"
+    patient_labels[key] = label
+    patient_counters[base_id] = count + 1
+    return label
 
 
 def ensure_project_exists(host, project, username, password):
@@ -287,10 +278,9 @@ if __name__ == '__main__':
 
     ensure_project_exists(host, project, username, password)
 
-    patient_studies = {}
-    patient_suffix_counters = {}
-    patient_study_override = {}
-    session_records = []  # (session_path, series_instance_uid, final_patient_id)
+    patient_labels = {}
+    patient_counters = {}
+    session_records = []  # (session_path, series_instance_uid, session_patient_id)
 
     for n, row in df.iterrows():
         print(f"[{n+1}/{len(df)}] Processing series_instance_uid={row.series_instance_uid}", flush=True)
@@ -320,13 +310,20 @@ if __name__ == '__main__':
         except ValueError as err:
             print(f"  ERROR: {err}", flush=True)
             continue
-        final_patient_id = adjust_patient_identifier(
-            zip_file_path,
-            patient_studies,
-            patient_suffix_counters,
-            patient_study_override
-        )
-        print(f"  Using PatientID: {final_patient_id}", flush=True)
+        patient_id, patient_name, study_uid = extract_patient_info(zip_file_path)
+        print(f"  Detected PatientID: {patient_id}", flush=True)
+        if patient_name:
+            print(f"  Detected PatientName: {patient_name}", flush=True)
+        if study_uid:
+            print(f"  Detected StudyInstanceUID: {study_uid}", flush=True)
+
+        final_patient_id = assign_session_label(patient_id, study_uid, patient_labels, patient_counters)
+        if final_patient_id != (patient_id or ""):
+            print(f"  Rewriting PatientID (session label) to {final_patient_id}", flush=True)
+            rewrite_patient_id(zip_file_path, final_patient_id)
+        else:
+            final_patient_id = patient_id or "UNKNOWN"
+
         if csv_file_path.endswith('.tcia'):
             manifest_patient_map.append((series_instance_uid, final_patient_id))
         print(f"  Uploading {zip_file_path} to XNAT project {project}", flush=True)
