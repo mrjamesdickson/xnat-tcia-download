@@ -8,7 +8,7 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-DOCKER_IMAGE=${DOCKER_IMAGE:-xnatworks/xnat-tcia-download:1.3.0}
+DOCKER_IMAGE=${DOCKER_IMAGE:-xnatworks/xnat-tcia-download:1.3.1}
 
 list_manifests() {
   local script_dir
