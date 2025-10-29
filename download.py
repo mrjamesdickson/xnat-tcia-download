@@ -10,7 +10,7 @@ import pydicom
 
 
 
-def upload_with_rest(host, project, username, password, zip_path):
+def upload_with_rest(session, host, project, zip_path):
     """Upload DICOM ZIP to XNAT using the REST import service."""
     url = host.rstrip('/') + '/data/services/import'
     params = {
@@ -21,7 +21,7 @@ def upload_with_rest(host, project, username, password, zip_path):
     }
     with open(zip_path, 'rb') as fp:
         files = {'file': ('img.zip', fp, 'application/zip')}
-        response = requests.post(url, params=params, files=files, auth=(username, password))
+        response = session.post(url, params=params, files=files)
     print(f"    XNAT response status: {response.status_code}", flush=True)
     print(f"    XNAT response body:\n{response.text}", flush=True)
     if not response.ok:
@@ -29,16 +29,16 @@ def upload_with_rest(host, project, username, password, zip_path):
     return response.text.strip()
 
 
-def commit_prearchive_session(host, username, password, session_path):
+def commit_prearchive_session(session, host, session_path):
     """Commit (archive) a prearchive session given the session path returned from upload."""
     url = host.rstrip('/') + session_path + '?action=commit'
-    response = requests.post(url, auth=(username, password))
+    response = session.post(url)
     print(f"    Commit response status: {response.status_code}", flush=True)
     print(f"    Commit response body:\n{response.text}", flush=True)
     if response.status_code == 500 and "Session already exists with matching files" in response.text:
         print("    Commit detected duplicate archive; removing prearchive copy and continuing.", flush=True)
         cleanup_url = host.rstrip('/') + session_path
-        cleanup_response = requests.delete(cleanup_url, auth=(username, password))
+        cleanup_response = session.delete(cleanup_url)
         print(f"    Cleanup response status: {cleanup_response.status_code}", flush=True)
         if not cleanup_response.ok:
             print(f"    Cleanup response body:\n{cleanup_response.text}", flush=True)
@@ -50,7 +50,7 @@ def commit_prearchive_session(host, username, password, session_path):
     return response.text.strip()
 
 
-def upload_project_file(host, project, username, password, resource, file_path):
+def upload_project_file(session, host, project, resource, file_path):
     """Upload a file to a project-level resource."""
     url = (
         host.rstrip('/')
@@ -58,11 +58,10 @@ def upload_project_file(host, project, username, password, resource, file_path):
     )
     params = {'overwrite': 'true'}
     with open(file_path, 'rb') as fp:
-        response = requests.put(
+        response = session.put(
             url,
             params=params,
             data=fp,
-            auth=(username, password),
             headers={'Content-Type': 'application/octet-stream'}
         )
     print(f"    Resource upload status ({resource}): {response.status_code}", flush=True)
@@ -123,11 +122,11 @@ def assign_session_label(patient_id, study_uid, patient_labels, patient_counters
     return label
 
 
-def ensure_project_exists(host, project, username, password):
+def ensure_project_exists(session, host, project):
     """Ensure the XNAT project exists; create it if missing."""
     base = host.rstrip('/')
     check_url = f"{base}/data/projects/{project}?format=json"
-    response = requests.get(check_url, auth=(username, password))
+    response = session.get(check_url)
     if response.status_code == 200:
         return
     if response.status_code != 404:
@@ -140,11 +139,10 @@ def ensure_project_exists(host, project, username, password):
         '<xnat:ProjectData xmlns:xnat="http://nrg.wustl.edu/xnat" '
         f'ID="{project}" name="{project}"></xnat:ProjectData>'
     )
-    create_resp = requests.put(
+    create_resp = session.put(
         create_url,
         data=payload,
-        headers={'Content-Type': 'application/xml'},
-        auth=(username, password)
+        headers={'Content-Type': 'application/xml'}
     )
     if create_resp.status_code not in (200, 201, 202):
         raise RuntimeError(
@@ -253,6 +251,9 @@ if __name__ == '__main__':
     xnatsession = xnat.connect(host, user=username, password=password)
     print("XNAT connection established.", flush=True)
 
+    http_session = requests.Session()
+    http_session.auth = (username, password)
+
     manifest_header_lines = []
     manifest_patient_map = []
 
@@ -276,7 +277,7 @@ if __name__ == '__main__':
     else:
         raise NotImplementedError()
 
-    ensure_project_exists(host, project, username, password)
+    ensure_project_exists(http_session, host, project)
 
     patient_labels = {}
     patient_counters = {}
@@ -328,7 +329,7 @@ if __name__ == '__main__':
             manifest_patient_map.append((series_instance_uid, final_patient_id))
         print(f"  Uploading {zip_file_path} to XNAT project {project}", flush=True)
         try:
-            session_path = upload_with_rest(host, project, username, password, zip_file_path)
+            session_path = upload_with_rest(http_session, host, project, zip_file_path)
             print("  Upload finished.", flush=True)
             session_records.append((session_path, series_instance_uid, final_patient_id))
         except RuntimeError as err:
@@ -344,7 +345,7 @@ if __name__ == '__main__':
     for session_path, series_uid, patient_id in session_records:
         print(f"Committing session for series {series_uid} (PatientID {patient_id})", flush=True)
         try:
-            archive_path = commit_prearchive_session(host, username, password, session_path)
+            archive_path = commit_prearchive_session(http_session, host, session_path)
             if archive_path == "ALREADY_ARCHIVED":
                 print("  Session already archived previously; moving on.", flush=True)
             else:
@@ -364,12 +365,11 @@ if __name__ == '__main__':
                 modified_manifest_path = tmp.name
             original_path = os.path.abspath(csv_file_path)
             print("Uploading manifest files to project resources...", flush=True)
-            upload_project_file(host, project, username, password, 'MANIFEST_ORIGINAL', original_path)
+            upload_project_file(http_session, host, project, 'MANIFEST_ORIGINAL', original_path)
             upload_project_file(
+                http_session,
                 host,
                 project,
-                username,
-                password,
                 'MANIFEST_MODIFIED',
                 modified_manifest_path
             )
